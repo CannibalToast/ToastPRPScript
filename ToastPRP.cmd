@@ -43,7 +43,8 @@ echo:
 echo:
 echo Creating .BA2 Archive from Files...
 START /WAIT ./tools/archive2/archive2 ".\Data\Meshes" -c=".\Data\%ESP% - Main.ba2"
-.\data\meshes,.\data\vis -recurse
+rmdir .\data\meshes /q /s
+rmdir .\data\vis /q /s
 echo Done!
 echo Please Apply the script in xedit called: MergePrevis
 echo Thank you for using my script! You may close it now. Stay Toasty!!
