@@ -37,7 +37,7 @@ START /WAIT CreationKit.exe -BuildCDX:"%ESP%.esp"
 echo Done!
 echo:
 echo Generating Previs Data...
-START /WAIT CreationKit.exe -GeneratePrevisData:"%ESP%.esp"
+START /WAIT CreationKit.exe -GeneratePrevisData:"%ESP%.esp" clean all
 echo Done!
 echo:
 echo:
