@@ -58,16 +58,10 @@ if ($CK) {
     Write-Host "Done!`n"
     Write-Host "Hold shift and press OK in xedit and apply this script to $ESP.esp: 03_MergeCombinedObjects.pas 'n"
     Start-Process -FilePath "$xEdit\fo4edit.exe" -ArgumentList "-quickedit:combinedobjects.esp" -wait
-
-#MAKING TEMP BA2
-    Start-Process -FilePath ".\tools\archive2\archive2" -ArgumentList "`".\Data\Meshes`" -c=`".\Data\$ESP - Main.ba2`"" -wait
-    Rename-Item -Path ".\data\meshes" -NewName "meshes2"
-    Remove-Item -Path ".\Data\CombinedObjects.esp"
-
 #Deleting .PSG file
 		while (!(Test-Path -Path ".\Data\$ESP - Geometry.csg")) {
         Write-Host "Compressing PSG..."
-        Start-Process -FilePath "creationkit.exe" -ArgumentList "-CompressPSG:`"$ESP.esp`"" -wait
+        Start-Process -FilePath $CK -ArgumentList "-CompressPSG:`"$ESP.esp`"" -wait
         Write-Host "Done!`n"
 
         if (Test-Path ".\Data\$ESP - Geometry.csg") {
@@ -77,6 +71,13 @@ if ($CK) {
             Read-Host "ERROR!!! PSG COMPRESSION FAILED!!!"
         }
     }
+	
+#MAKING TEMP BA2
+    Start-Process -FilePath ".\tools\archive2\archive2" -ArgumentList "`".\Data\Meshes`" -c=`".\Data\$ESP - Main.ba2`"" -wait
+    Rename-Item -Path ".\data\meshes" -NewName "meshes2"
+    Remove-Item -Path ".\Data\CombinedObjects.esp"
+
+
 	
 #CDX Generation
 Write-Host "Generating CDX..."
