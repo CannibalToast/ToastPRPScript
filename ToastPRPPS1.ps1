@@ -26,7 +26,10 @@ Do {
 Until ($ANSWER -eq 'y')
 
 #ESP Name
-$ESP = Read-Host "Please type in the EXACT file name WITHOUT the .esp extension"
+$ESP = Read-Host "Please type in the EXACT file name WITHOUT the extension"
+
+#EXT
+$EXT = Read-Host "Please type in the extension of the file WITH the period. (.esp/.esm/.esl)"
 
 #xEdit DIR
 $xEdit = Read-Host "Please give the FULL directory of where FO4Edit is installed"
@@ -56,15 +59,15 @@ Write-Host "Using $CK for generation"
 if ($CK) {
 #PC GEN
 Write-Host "Generating Precombines..."
-    Start-Process -FilePath $CK -ArgumentList "-GeneratePrecombined:`"$ESP.esp`" clean all" -wait
+    Start-Process -FilePath $CK -ArgumentList "-GeneratePrecombined:`"$ESP$EXT`" clean all" -wait
     Write-Host "Done!`n"
-    Write-Host "Hold shift & press OK in xedit & apply this script to $ESP.esp: 03_MergeCombinedObjects.pas"
+    Write-Host "Launching xEdit for you! Hold shift & press OK in xedit & apply this script to $ESP.esp: 03_MergeCombinedObjects.pas"
 	Start-Process -FilePath "$xEdit\fo4edit.exe" -ArgumentList "-quickedit:combinedobjects.esp" -wait
 
 #CompressPSG
  while (!(Test-Path -Path ".\Data\$ESP - Geometry.csg")) {
         Write-Host "Compressing PSG..."
-        Start-Process -FilePath $CK -ArgumentList "-CompressPSG:`"$ESP.esp`"" -wait
+        Start-Process -FilePath $CK -ArgumentList "-CompressPSG:`"$ESP$EXT`"" -wait
         Write-Host "Done!`n"
 		}
 		if (Test-Path ".\Data\$ESP - Geometry.csg") {
@@ -77,20 +80,24 @@ Write-Host "Making Temporary archive of meshes to accelerate generation."
 	Write-Host Done!
 	
 Write-Host "Generating CDX..."
-    Start-Process -FilePath $CK -ArgumentList "-buildcdx:`"$ESP.esp`" clean all" -wait
+    Start-Process -FilePath $CK -ArgumentList "-buildcdx:`"$ESP$EXT`" clean all" -wait
     Write-Host "Done!`n"
 
 Write-Host "Generating PreVis..."
-    Start-Process -FilePath $CK -ArgumentList "-GeneratePreVisdata:`"$ESP.esp`" clean all" -wait
+    Start-Process -FilePath $CK -ArgumentList "-GeneratePreVisdata:`"$ESP$EXT`" clean all" -wait
     Write-Host "Done!`n"
-    Write-Host "Hold Shift & press OK in xedit & apply this script to $ESP.esp: 05_MergePrevis.pas"
+    Write-Host "Launching xEdit for you! Hold Shift & press OK in xedit & apply this script to $ESP.esp: 05_MergePrevis.pas"
     Start-Process -FilePath "$xEdit\fo4edit.exe" -ArgumentList "-quickedit:previs.esp" -wait
 
 Write-Host "Creating .BA2 Archive from files..."
     Rename-Item -Path ".\data\meshes2" -NewName "meshes"
     Start-Process -FilePath ".\tools\archive2\archive2" -ArgumentList "`".\Data\vis,.\data\meshes`" -c=`".\Data\$ESP - Main.ba2`"" -wait
 	Remove-item ".\data\meshes\",".\data\vis\",".\data\previs.esp",".\data\CombinedObjects.esp" -Recurse
-    Read-Host "Thank you for using my script! You may close it now. Stay Toasty!"
-
+	
+Write-Host "Autocleaning ESP..."
+	Start-Process -FilePath "$xEdit\fo4edit.exe" -ArgumentList "-qac -autoexit -autoload $ESP$EXT" -wait
+	Write-Host "Done!'n"
+Read-Host "Thank you for using my script! You may close it now. Stay Toasty!"
+	
 exit
 }
