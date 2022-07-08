@@ -25,6 +25,7 @@ Do {
 }
 Until ($ANSWER -eq 'y')
 
+
 #ESP Name
 $ESP = Read-Host "Please type in the EXACT file name WITHOUT the extension"
 
@@ -44,15 +45,19 @@ Read-Host "Creation Kit not found, Please make sure that the script is in the fa
 exit
 }
 
+Rename-Item "enbImgui.dll" -newname "enbImgui.dll.enb">nul
+
 #Find Creation Kit EXEs 
 if (Test-Path "f4ck_loader.exe") {
     $CK = "f4ck_loader.exe"
-    Write-Host "f4ck_loader.exe found"
-} else {
-Read-Host "f4ck_loader.exe NOT FOUND!!! PLEASE INSTALL CK FIXES AND RESTART THIS SCRIPT"
-exit
+    Write-Host "f4ck_loader.exe found" } else { if (Test-Path Creationkit.patched.exe) {
+	Rename-Item "d3d11.dll" -NewName "d3d11.dll.enb"
+	Rename-Item "d3dcompiler_46e.dll" -NewName "d3dcompiler_46e.dll.enb"
+Write-Host " f4ck_loader not found. Using Searge's Patched Creation Kit"
+$CK = "Creationkit.patched.exe" } else { $CK = "Creationkit.exe"
 }
- 
+}
+
 Write-Host "Using $CK for generation"
 
 #STARTING SCRIPT
@@ -62,21 +67,19 @@ Write-Host "Generating Precombines..."
     Start-Process -FilePath $CK -ArgumentList "-GeneratePrecombined:`"$ESP$EXT`" clean all" -wait
     Write-Host "Done!`n"
     Write-Host "Launching xEdit for you! Hold shift & press OK in xedit & apply this script to $ESP.esp: 03_MergeCombinedObjects.pas"
-	Start-Process -FilePath "$xEdit\fo4edit.exe" -ArgumentList "-quickedit:combinedobjects.esp" -wait
+	Start-Process -FilePath "$xEdit\fo4edit.exe" -ArgumentList "-quickedit:CombinedObjects.esp" -wait
 
 #CompressPSG
- while (!(Test-Path -Path ".\Data\$ESP - Geometry.csg")) {
         Write-Host "Compressing PSG..."
         Start-Process -FilePath $CK -ArgumentList "-CompressPSG:`"$ESP$EXT`"" -wait
         Write-Host "Done!`n"
-		}
 		if (Test-Path ".\Data\$ESP - Geometry.csg") {
             Remove-Item -Path ".\Data\$ESP - Geometry.psg"
 		}
 
 Write-Host "Making Temporary archive of meshes to accelerate generation."
     Start-Process -FilePath ".\tools\archive2\archive2" -ArgumentList "`".\Data\Meshes`" -c=`".\Data\$ESP - Main.ba2`"" -wait
-    Rename-Item -Path ".\data\meshes" -NewName "meshes2"
+    Rename-Item -Path ".\data\Meshes" -NewName "Meshes2"
 	Write-Host Done!
 	
 Write-Host "Generating CDX..."
@@ -97,6 +100,13 @@ Write-Host "Creating .BA2 Archive from files..."
 Write-Host "Autocleaning ESP..."
 	Start-Process -FilePath "$xEdit\fo4edit.exe" -ArgumentList "-qac -autoexit -autoload $ESP$EXT" -wait
 	Write-Host "Done!'n"
+	 if (!(Test-Path f4ck_loader.exe )){
+	
+	Rename-Item "d3d11.dll.enb" -NewName "d3d11.dll"
+	Rename-Item "d3dcompiler_46e.dll.enb" -NewName "d3dcompiler_46e.dll"
+} 
+
+Rename-Item "enbImgui.dll.enb" -NewName "enbImgui.dll">nul
 Read-Host "Thank you for using my script! You may close it now. Stay Toasty!"
 	
 exit
