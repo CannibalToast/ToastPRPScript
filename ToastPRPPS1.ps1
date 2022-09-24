@@ -61,7 +61,7 @@ if ($CK) {
 Write-Host "Generating Precombines..."
     Start-Process -FilePath $CK -ArgumentList "-GeneratePrecombined:`"$ESP`" clean all" -wait
     Write-Host "Done!`n" 
-	"Launching xEdit for you! Press OK in xedit & apply this script to $ESP: 03_MergeCombinedObjects.pas"
+	"Launching xEdit for you! Press OK in xedit & apply this script to $ESP : 03_MergeCombinedObjects.pas"
 	Start-Process -FilePath $xEdit -ArgumentList '"-nobuildrefs" "-quickedit:CombinedObjects.esp"' -wait
 	Remove-item ".\Data\CombinedObjects.esp"
 	
@@ -90,7 +90,7 @@ Write-Host "Generating Cell Index (CDX)..."
 #Generate PREVIS
 Write-Host "Generating PreVis Data..."
     Start-Process -FilePath $CK -ArgumentList "-GeneratePreVisdata:$ESP clean all" -wait
-    Write-Host "Done!`n""Launching xEdit for you! Press OK in xedit & apply this script to $ESP: 05_MergePrevis.pas"
+    Write-Host "Done!`n""Launching xEdit for you! Press OK in xedit & apply this script to $ESP : 05_MergePrevis.pas"
     Start-Process -FilePath $xEdit -ArgumentList '"-nobuildrefs" "-quickedit:PreVis.esp"' -wait
 	Remove-Item -Path ".\Data\PreVis.esp\"
 	
