@@ -12,7 +12,8 @@ Apply Version control
 Have all been completed
 MAKE SURE ALL "No Previs" FLAGS HAVE BEEN REMOVED FROM CELLS
 Please reference full guide with links to all resources here: https://diskmaster.github.io/ModernPrecombines/MANUAL
---------------------------------------------------------------------------------------------------------------------
+_____________________________________________________________________________________________________________________
+
 "@
 Do {
 	# Yes/No
@@ -23,77 +24,94 @@ Do {
 Until ($ANSWER -eq 'y')
 
 
-#ESP Name
+#V A R I A B L E S
 $ESP = Read-Host "Please type in the EXACT file name WITH the extension"
 
-#EXT
-$EXT = [System.IO.Path]::GetFileNameWithoutExtension($ESP)   
+$EXT = [System.IO.Path]::GetFileNameWithoutExtension($ESP)
 
-#xEdit DIR
-$xEdit = Read-Host "Please give the FULL directory of FO4Edit"
+#$xEdit
+If (!(Test-Path "xedit.txt")) { $xEdit = Read-Host "Please input the FULL directory of FO4Edit WITH EXECUTABLE!!! ex. /bla/bla/fo4edit.exe It will be saved for your next launch of my script :)"
+New-Item xedit.txt
+Set-Content xedit.txt $xEdit } else { $xEdit = get-Content "xedit.txt" }
+
+$Archive2 = "./tools/archive2/archive2"
+
+$UNPACK = '"./data/{0} - Main.ba2" -e=".\data"' -f $EXT
+
+$PACK = "-c=`".\Data\{0} - Main.ba2`"" -f $EXT
+
+$ENB = 'Rename-Item "d3d11.dll" -NewName "d3d11.dll.enb" Rename-Item "d3dcompiler_46e.dll" -NewName "d3dcompiler_46e.dll.enb"'
+$BNE = 'Rename-Item "d3d11.dll.enb" -NewName "d3d11.dll" Rename-Item "d3dcompiler_46e.dll.enb" -NewName "d3dcompiler_46e.dll"'
 
 #Find Creation Kit EXE(s) 
 if (Test-Path "f4ck_loader.exe") {
 $CK = "f4ck_loader.exe"
-Write-Host "f4ck_loader.exe found" } else { if (Test-Path Creationkit.patched.exe) {
+Write-Host "f4ck_loader.exe found" } else { 
+$ENB
+if (Test-Path Creationkit.patched.exe) { 
+$ENB
 Write-Host " f4ck_loader not found. Using Searge's Patched Creation Kit"
 $CK = "Creationkit.patched.exe" } else { $CK = "Creationkit.exe"} Write-Host "Using Default Creaitonkit.exe as no other exe's were found!"
 } Write-Host "Using $CK for generation"
 
-if (Test-Path "d3d11.dll,d3dcompiler_46e.dll") {
-Rename-Item "d3d11.dll" -NewName "d3d11.dll.enb"
-Rename-Item "d3dcompiler_46e.dll" -NewName "d3dcompiler_46e.dll.enb"
-}
 
-#STARTING SCRIPT
+#STARTING Generation
 if ($CK) {
 #PC GEN
 Write-Host "Generating Precombines..."
     Start-Process -FilePath $CK -ArgumentList "-GeneratePrecombined:`"$ESP`" clean all" -wait
     Write-Host "Done!`n" 
-	"Launching xEdit for you! Press OK in xedit & apply this script to $ESP.esp: 03_MergeCombinedObjects.pas"
-	Timeout /T 3
-	Start-Process -FilePath "$xEdit\fo4edit.exe" -ArgumentList '"-nobuildrefs" "-quickedit:CombinedObjects.esp"' -wait
-
+	"Launching xEdit for you! Press OK in xedit & apply this script to $ESP: 03_MergeCombinedObjects.pas"
+	Start-Process -FilePath $xEdit -ArgumentList '"-nobuildrefs" "-quickedit:CombinedObjects.esp"' -wait
+	Remove-item ".\Data\CombinedObjects.esp"
+	
 #CompressPSG
         Write-Host "Compressing PSG..."
-        Start-Process -FilePath $CK -ArgumentList "-CompressPSG:`"$ESP`"" -wait
+        Start-Process -FilePath $CK -ArgumentList "-CompressPSG:$ESP" -wait
         Write-Host "Done!`n"
 		if (Test-Path ".\Data\$EXT - Geometry.csg") {
             Remove-Item -Path ".\Data\$EXT - Geometry.psg"
-		}
-#Temp ARCHIVE
-Write-Host "Making Temporary archive of meshes to accelerate generation."
-    Start-Process -FilePath ".\tools\archive2\archive2" -ArgumentList "`".\Data\Meshes`" -c=`".\Data\$EXT - Main.ba2`"" -wait
-	Write-Host Done!
-
-#GenerateCDX
-Write-Host "Generating CDX..."
-    Start-Process -FilePath $CK -ArgumentList "-buildcdx:`"$ESP`" clean all" -wait
-    Write-Host "Done!`n"
-#GeneratePREVIS
-Write-Host "Generating PreVis..."
-    Start-Process -FilePath $CK -ArgumentList "-GeneratePreVisdata:`"$ESP`" clean all" -wait
-    Write-Host "Done!`n""Launching xEdit for you! Press OK in xedit & apply this script to $ESP.esp: 05_MergePrevis.pas"
-    Start-Process -FilePath "$xEdit\fo4edit.exe" -ArgumentList '"-nobuildrefs" "-quickedit:PreVis.esp"' -wait
-
-#ARCHIVE
-Write-Host "Creating .BA2 Archive from files..."
-	Start-Process -FilePath ".\tools\archive2\archive2" -ArgumentList '"$EXT - Main.ba2" -e="./"'
-    Start-Process -FilePath ".\tools\archive2\archive2" -ArgumentList "`".\Data\vis,.\data\meshes`" -c=`".\Data\$EXT - Main.ba2`"" -wait
-#CLEANUP
-Write-Host "Autocleaning ESP..."
-	Start-Process -FilePath "$xEdit\fo4edit.exe" -ArgumentList "-qac -autoexit -autoload $ESP" -wait
-	Remove-item ".\data\meshes\",".\data\vis\",".\data\PreVis.esp",".\data\CombinedObjects.esp" -Recurse
-	
-if (Test-Path "d3d11.dll.enb,d3dcompiler_46e.dll.enb") {
-Rename-Item "d3d11.dll.enb" -NewName "d3d11.dll"
-Rename-Item "d3dcompiler_46e.dll.enb" -NewName "d3dcompiler_46e.dll"
+		} else { Remove-Item -Path ".\data\$ESP",".\data\$EXT.cdx",".\data\$EXT - Geometry.csg",".\data\$EXT - Main.ba2" 
+		Read-Host "COMPRESSION FAILED!! ALL GENERATED FILES INCLUDING $ESP HAVE BEEN DELETED TO PREVENT ANOTHER CORRUPTED ATTEMPT! PLEASE RESTART THE PROCESS"
+exit
 }
 
-Read-Host "Done!'n""Thank you for using my script! You may close it now. Stay Toasty!"
+#Temp ARCHIVE
+Write-Host "Making Archive of Files to accelerate generation..."
+    Start-Process -FilePath $Archive2 -ArgumentList "`".\data\meshes`" $PACK" -wait
+	Write-Host Done!
+	Remove-Item -Path ".\Data\Meshes\" -Recurse
+	
+#GenerateCDX
+Write-Host "Generating Cell Index (CDX)..."
+    Start-Process -FilePath $CK -ArgumentList "-buildcdx:$ESP clean all" -wait
+    Write-Host "Done!"
+	
+#Generate PREVIS
+Write-Host "Generating PreVis Data..."
+    Start-Process -FilePath $CK -ArgumentList "-GeneratePreVisdata:$ESP clean all" -wait
+    Write-Host "Done!`n""Launching xEdit for you! Press OK in xedit & apply this script to $ESP: 05_MergePrevis.pas"
+    Start-Process -FilePath $xEdit -ArgumentList '"-nobuildrefs" "-quickedit:PreVis.esp"' -wait
+	Remove-Item -Path ".\Data\PreVis.esp\"
+	
+#ARCHIVE
+	Write-Host "Adding New Files to Archive" 
+	Start-Process -FilePath $Archive2 $UNPACK -wait
+    Start-Process -FilePath $Archive2 -ArgumentList "`".\data\vis,.\data\meshes`" $PACK" -wait
+	Remove-Item -Path ".\Data\Vis\",".\Data\Meshes\" -Recurse
+	
+#CLEANUP
+Write-Host "Cleaning Up The ESP..."
+	Start-Process -FilePath $xEdit -ArgumentList "-qac -autoexit -autoload $ESP" -wait
+	if (!(Test-Path "f4ck_loader.exe")) {$BNE} 
+	
+#ZIP
+Compress-Archive -Path ".\data\$ESP",".\data\$EXT.cdx",".\data\$EXT - Geometry.csg",".\data\$EXT - Main.ba2" -DestinationPath ".\data\$EXT.zip"
+Remove-Item -Path ".\data\$ESP",".\data\$EXT.cdx",".\data\$EXT - Geometry.csg",".\data\$EXT - Main.ba2"
+
+Write-Host "GENERATION COMPLETE!!! All required files are in the .ZIP file created, you can install like any other mod!! Thank you for using my script! You may close it now. Stay Toasty!"
 exit
 } else { 
-Read-Host "Creation Kit not found, Please make sure that you have creation kit intalled and that this file is in the same directory is creationkit.exe"
+Read-Host "Creation Kit not found, Please put this script in the fallout 4 folder"
 exit
 }
