@@ -284,6 +284,7 @@ WshShell.SendKeys "{ENTER}" ' Press Enter key
 
 try {
     Choice
+    UpdateEspInJson
     CreateZip
 }
 finally {
