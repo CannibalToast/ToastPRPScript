@@ -32,28 +32,25 @@ function Get-ESP {
             $logFileName = ".\Data\ToastPRP\Logs\{0}-{1:MM-dd-yyyy-HH-mm}.log" -f $EXT, (Get-Date)
             $logFilePath = Join-Path -Path (Get-Location) -ChildPath $logFileName
             Start-Transcript -Path $logFilePath -Append
-            $backupChoice = Read-Host "Do you want to create a backup of the ESP file before proceeding? (Y/N)"
-            if ($backupChoice.ToLower() -eq "y") {
-                $backupPath = ".\Data\ToastPRP\ESP_Backups"
-                if (!(Test-Path $backupPath)) {
-                    New-Item -ItemType Directory -Path $backupPath | Out-Null
-                }
-                Copy-Item -Path $selectedFile -Destination "$backupPath\"
-                Write-Output "Backup of $ESP created in $backupPath"
-            }
+        }
+            
+        #Backup Process
+        $backupPath = ".\Data\ToastPRP\ESP_Backups"
+        if (!(Test-Path $backupPath)) {
+            New-Item -ItemType Directory -Path $backupPath | Out-Null
+        }
+        # Check if the file already exists in the backup folder
+        $backupFilePath = Join-Path -Path $backupPath -ChildPath $ESP
+        if (!(Test-Path $backupFilePath)) {
+            # Use Copy-Item with the -Force parameter to overwrite existing files
+            Copy-Item -Path $selectedFile -Destination "$backupPath\" -Force
+            Write-Output "Backup of $ESP created in $backupPath"
         }
         else {
-            Write-Warning "No file selected. Please select a file and try again."
-            return
+            Write-Output "Backup of $ESP already exists in $backupPath. Overwriting..."
         }
     }
-    else {
-        Write-Warning "File selection dialog was cancelled. Exiting the script."
-        return
-    }
 }
-
-
 
 Get-ESP
 function Rename-Texture {
@@ -82,9 +79,9 @@ function Invoke-Archive2([string]$Argument) {
 function Precombines {
     # Remove all files in the Precombined directory
     Remove-Item -Path "$pwd\Data\Meshes\Precombined\*" -Recurse
+    UpdateEspInJson
     Write-Output "Generating Precombines..."
     #Add $ESP to Json file right before generation as intended.
-    UpdateEspInJson
     # Generate precombined meshes
     Invoke-CK -Argument "-GeneratePrecombined:`"$ESP`" clean all"
     # Check if CombinedObjects.esp exists
@@ -94,7 +91,8 @@ function Precombines {
         Start-Process -FilePath ./presskeys.vbs
         # Run script to merge combined objects and check
         Invoke-xEdit -Argument "-script:Batch_FO4MergeCombinedObjectsAndCheck.pas -nobuildrefs -Mod:$ESP" -Wait    
-    } else {
+    }
+    else {
         Write-Output "CombinedObjects.esp Not found, Relaunching xEdit"
         Stop-Process $script:xEdit
         Start-Process -FilePath ./presskeys.vbs
@@ -185,39 +183,44 @@ function ReadJson {
     }
 }
 
-function ExecuteSelectedFunction($startFunction) {
-    $functions = @(
-        { Precombines },
-        { PSGCompression },
-        { PackMesh },
-        { GenerateCDX },
-        { Previs },
-        { PackMeshVis }
-    )
-
-    for ($i = [int]$startFunction - 1; $i -lt $functions.Count; $i++) {
-        & $functions[$i]
+function ExecuteSelectedFunction([int]$startFunction) {
+    if ($startFunction -ge 0 -and $startFunction -le 5) {
+        $functions = @(
+            "Precombines",
+            "PSGCompression",
+            "PackMesh",
+            "GenerateCDX",
+            "Previs",
+            "PackMeshVis"
+        )
+        for ($i = $startFunction; $i -lt $functions.Count; $i++) {
+            try {
+                & $functions[$i]
+            } catch {
+                Write-Error $_
+            }
+        }
+    } else {
+        return "Invalid start function value"
     }
 }
-
 
 function Choice {
     ReadJson
     Write-Output "ESP value: $ESP"
     Write-Output "ESP present in JSON: $($ESP -in $jsonContent.'ESP-WIP')"
-    
     if ($ESP -in $jsonContent.'ESP-WIP') {
         $startFunction = Read-Host -Prompt @"
-Enter the number of the function you want to start from (1-7):
-1. Precombines
-2. PSGCompression
-3. PackMesh
-4. GenerateCDX
-5. Previs
-6. PackMeshVis
+Enter the number of the function you want to start from (0-5):
+0. Precombines
+1. PSGCompression
+2. PackMesh
+3. GenerateCDX
+4. Previs
+5. PackMeshVis
 "@
     }
-    else { $startFunction = 1 }
+    else { $startFunction = 0 }
     
     ExecuteSelectedFunction($startFunction)
 }
@@ -235,7 +238,6 @@ function CreateZip {
     if (!(Test-Path $destinationPath)) {
         New-Item -ItemType Directory -Path $destinationPath | Out-Null
     }
-
     $zipFileName = "$EXT.zip"
     $zipFilePath = Join-Path -Path $destinationPath -ChildPath $zipFileName
     $sourceFiles = @(
@@ -244,16 +246,8 @@ function CreateZip {
         ".\Data\$EXT - Geometry.csg",
         ".\Data\$EXT.cdx"
     )
-
     Compress-Archive -Path $sourceFiles -DestinationPath $zipFilePath
     Write-Output "Generated zip file saved to $zipFilePath"
-
-    if (Test-Path $zipFileName)
-    { Remove-Item $sourceFiles }
-    else {
-        Write-Output "Error, Zip file not detected"
-        return
-    }
 }
 
 # Check if PressKeys.vbs exists
@@ -284,7 +278,6 @@ WshShell.SendKeys "{ENTER}" ' Press Enter key
 
 try {
     Choice
-    UpdateEspInJson
     CreateZip
 }
 finally {
