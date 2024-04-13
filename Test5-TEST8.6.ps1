@@ -1,3 +1,4 @@
+$script:transcriptActive = $false
 $script:regkey = 'HKLM:\Software\Wow6432Node\Bethesda Softworks\Fallout4'
 $script:fo4 = Get-ItemPropertyValue -Path $script:regkey -Name 'installed path' -ErrorAction Stop
 $script:data = Join-Path $script:fo4 "data"
@@ -197,7 +198,7 @@ function Wait-ForFile {
 function Backup-ESP { 
     $backupPath = "$script:data\ToastPRP\ESP_Backups"
     Start-Transcript -Path ("$script:data\ToastPRP\Logs\$EXT-{0:MM-dd-yyyy-HH-mm}.log" -f (Get-Date))
-    
+    $script:transcriptActive = $true
     # Ensure the backup directory exists
     New-Item -ItemType Directory -Path $backupPath -Force | Out-Null
     
@@ -217,57 +218,44 @@ function ManageJson {
     param(
         [switch]$CalledByPrecombines
     )
-    
-    # Check if the JSON file exists, and create it if necessary
     if (-not (Test-Path $script:jsonFilePath)) {
-        Initialize-JsonFile
+        $jsonContent = @{
+            'ESP-WIP'    = @()
+            'xEdit'      = $null
+            'Bsarch'     = $false
+            'BsarchPath' = $null
+        }
+    } else {
+        $jsonContent = Get-Content $script:jsonFilePath -Raw | ConvertFrom-Json
     }
 
-    # Ensure the JSON file exists or create a new one
-    $jsonContent = if (Test-Path $script:jsonFilePath) {
-        Get-Content $script:jsonFilePath -Raw | ConvertFrom-Json -AsHashtable
-    } else {
-        Initialize-JsonFile
+    if (-not $jsonContent.PSObject.Properties.Name.Contains('xEdit') -or -not $jsonContent.xEdit) {
+        $fileDialog = New-Object System.Windows.Forms.OpenFileDialog
+        $fileDialog.Title = "Select FO4Edit file"
+        $fileDialog.Filter = "FO4Edit (*.exe)|FO4Edit.exe;FO4Edit64.exe;fo4edit.exe;xEdit.exe;xEdit64.exe"
+        if ($fileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            $selectedFile = $fileDialog.FileName
+            if ($selectedFile -match '(?i)(fo4edit|fo4edit64|xedit|xedit64)\.exe$') {
+                $jsonContent.'xEdit' = $selectedFile
+                $script:xEdit = $selectedFile
+            }
+        }
     }
-    
-    # Ensure xEdit path is set in the JSON content
-    if (-not $jsonContent.'xEdit') {
-        $jsonContent.'xEdit' = Get-xEditPath
-    }
-    
-    # Add the current ESP to the 'ESP-WIP' array if necessary
+
     if ($CalledByPrecombines -and $script:ESP -and ($script:ESP -notin $jsonContent.'ESP-WIP')) {
         $jsonContent.'ESP-WIP' += $script:ESP
     }
-    
-    # Save the updated JSON content to the file
-    $jsonContent | ConvertTo-Json -Depth 100 | Set-Content $script:jsonFilePath
-    
-    # Update script-level variables
-    $script:xEdit = $jsonContent.'xEdit'
-    $script:BSArchive = $jsonContent.'BsarchPath'
-    
+
+    $jsonContent.'Bsarch' = $false
+    $jsonContent.'BsarchPath' = $null
+
+    $jsonString = $jsonContent | ConvertTo-Json -Depth 100
+    Set-Content $script:jsonFilePath -Value $jsonString
+
+    $script:xEdit = $jsonContent.xEdit
+    $script:BSArchive = $jsonContent.BsarchPath
+
     return $jsonContent
-}
-
-function Initialize-JsonFile {
-    Write-Output "No existing '$script:jsonFileName' found. A new one will be created."
-    @{
-        'ESP-WIP'    = @()
-        'xEdit'      = $null
-        'BsarchPath' = $null
-    }
-}
-
-function Get-xEditPath {
-    Add-Type -AssemblyName System.Windows.Forms
-    $fileDialog = New-Object System.Windows.Forms.OpenFileDialog
-    $fileDialog.Title = "Select xEdit.exe file"
-    $fileDialog.Filter = "xEdit (*.exe)|*.exe"
-    while ($fileDialog.ShowDialog() -ne 'OK') {
-        Write-Output "xEdit path selection was cancelled. xEdit path is required to continue."
-    }
-    return $fileDialog.FileName
 }
 
 function DLBSArch {
@@ -543,5 +531,7 @@ try {
     Write-Host "An error occurred:$_"
 } finally {
     Write-Host "Previsbines automation completed successfully!"
-    Stop-Transcript
+    if ($script:transcriptActive) {
+        Stop-Transcript
+    }
 }
