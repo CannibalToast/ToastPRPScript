@@ -1,5 +1,5 @@
 # ToastPRPScript
-Script to automate (most of) the generation of Precombine &amp; Previs data for Fallout 4
+Script to automate all of (as per last update) the generation of Precombine &amp; Previs data for Fallout 4
 
 Everything is self contained using only programs and scripts that came with the creation kit! No downloads!
 
