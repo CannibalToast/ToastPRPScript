@@ -15,3 +15,6 @@ https://www.nexusmods.com/fallout4/mods/69978
 https://www.nexusmods.com/fallout4/mods/51165
 
 ----------------------------------------------------------------------------------------------------------------------
+
+
+Feel free to send pull requests if you have a better solution to certain parts of the script!!!
