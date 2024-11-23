@@ -1,18 +1,22 @@
 param(
-    [switch]$Debug
+    [switch]$Debug,
+    [string]$OneOff = $null,
+    [switch]$iknowwhatimdoing,
+    [switch]$toast
 )
 
-if ($Debug) {
-    Write-Host "Debug mode enabled" -ForegroundColor Yellow
-    Set-PSReadLineOption -ContinuationPrompt "=> "
-}
+Write-Information "Running ToastPRP.ps1"
 Add-Type -AssemblyName System.Windows.Forms
+
+# If you have multiple installs of fallout 4 on one machine (You masochist....) make a copy of this script and change the $fo4 variable to the path of the second install and delete the regkey variable. 
 $script:regkey = 'HKLM:\Software\Wow6432Node\Bethesda Softworks\Fallout4'
 if (!(Test-Path 'HKLM:\Software\Wow6432Node\Bethesda Softworks\Fallout4')) { 
     Write-Error "Registry key for Fallout 4 could not be found, please run the fallout 4 launcher executable before trying to run this script again."
     return
 }
+
 $script:fo4 = Get-ItemPropertyValue -Path $script:regkey -Name 'installed path' -ErrorAction Stop
+
 $script:data = Join-Path $fo4 "data"
 $script:CK = "ckpe_loader.exe", "f4ck_loader.exe", "creationkit.exe" | Where-Object { Test-Path $_ } | Select-Object -First 1
 $script:Archive2 = Join-Path $script:data "tools\archive2\archive2.exe"
@@ -24,21 +28,109 @@ $script:Meshesdir = Join-Path $script:data "Meshes"
 $script:jsonFileName = "ToastPRP.json"
 $script:jsonFilePath = Join-Path $script:fo4 $script:jsonFileName
 $script:bsarch = Join-Path $script:fo4 "bsarch.exe"
-$script:done = { Write-Host "Done!" -ForegroundColor Green }
-
+$script:done = "$([char]27)[32mDone!$([char]27)[0m"
+$script:PJMLog = "Toast-PJM-{0:MM-dd-yyyy-HH-mm}.log" -f (Get-Date)
 #PEBKAC
-if ((Get-ChildItem -Path (Join-Path $script:Meshesdir "Precombined") -ErrorAction SilentlyContinue) -or (Get-ChildItem -Path $script:workingdir -ErrorAction SilentlyContinue)) {
-    Write-Host "[UNKNOWN PRECOMBINED FILES DETECTED]" -ForegroundColor Red
-    Write-Output "This may be due currently loaded mods which have unpacked precombines, or leftover files from previous script failure(s)."
-    Write-Host "THIS WILL MOST LIKELY CAUSE ISSUES DOWN THE LINE, HEED THIS WARNING!!!!" -ForegroundColor Red
-    $script:yn = Read-Host "Do you wish to continue(Y) or close the script(N)?"
-    If ($yn -eq "n") {
-        Write-Host "Please find the origin of these files and either pack them into an archive or remove them to prevent any issues during generation." -ForegroundColor Red
-        if ($host.Name -eq "ConsoleHost") {
-            Stop-Transcript
+switch ($true) {
+    ($toast -eq $true) {
+        Write-Host "Toast mode enabled. Skipping confirmations and warnings." -ForegroundColor Blue
+        $iknowwhatimdoing = $true
+        $debug = $true
+        break
+    }
+    ($iknowwhatimdoing -eq $false) {
+        if ((Get-ChildItem -Path (Join-Path $script:Meshesdir "Precombined") -ErrorAction SilentlyContinue) -or (Get-ChildItem -Path $script:workingdir -ErrorAction SilentlyContinue)) {
+            Write-Host "[UNKNOWN PRECOMBINED FILES DETECTED]" -ForegroundColor Red
+            Write-Output "This may be due to currently loaded mods which have unpacked precombines, or leftover files from previous script failure(s)."
+            Write-Host "THIS WILL MOST LIKELY CAUSE ISSUES DOWN THE LINE, HEED THIS WARNING!!!!" -ForegroundColor Red
+            $script:yn = Read-Host "Do you wish to continue(Y) or close the script(N)?"
+            If ($yn -eq "n") {
+                Write-Host "Please find the origin of these files and either pack them into an archive or remove them to prevent any issues during generation." -ForegroundColor Red
+                if ($host.Name -eq "ConsoleHost") {
+                    Stop-Transcript
+                    exit
+                }
+                else {
+                    exit
+                }
+            }
+        }
+    }
+    ($iknowwhatimdoing -eq $true) {
+        $confirmation = Read-Host "Please type 'I know what I'm doing' to continue, caps don't matter"
+        if ($confirmation -eq "I know what I'm doing" -or $confirmation -eq "i know what i'm doing") {
+            Write-Host "Confirmation received. Continuing..."
+            $iknowwhatimdoing = $true
+            $debug = $true
+            Write-Host "iknowwhatimdoing mode enabled" -ForegroundColor Yellow
+            Set-PSReadLineOption -ContinuationPrompt "=> "
+        }
+        else {
+            Write-Host "Incorrect confirmation. Exiting script."
             exit
         }
-        else { exit }
+        break
+    }
+}
+
+# Check for debug mode after the switch
+if ($iknowwhatimdoing -or $Debug -or $toast) {
+    Write-Host "Debug mode enabled, all debug output will be displayed in the color Yellow" -ForegroundColor Yellow
+}
+
+function Log2Transcript {
+    param(
+        [string]$sourceFilePath
+    )
+    
+    # Get the full path of the source file
+    $fullSourcePath = Join-Path $PWD $sourceFilePath
+    
+    # Check if the source file exists
+    if (-not (Test-Path $fullSourcePath)) {
+        Write-Error "Source file not found: $fullSourcePath"
+        return
+    }
+    
+    # Read the specified file
+    $fileContent = Get-Content -Path $fullSourcePath -Raw
+    
+    # Set InformationPreference to Continue to ensure Write-Information works
+    $oldInfoPref = $InformationPreference
+    $InformationPreference = 'Continue'
+    
+    try {
+        # Write the log entry using Write-Information and redirect output
+        & { Write-Information "$(Get-Date): $fileContent" } 6>&1 > $null -Wait
+        Write-Host "Log entry added to transcript." -ForegroundColor Green
+    } catch {
+        Write-Error "Failed to write to transcript: $_"
+    } finally {
+        # Restore the original InformationPreference
+        $InformationPreference = $oldInfoPref
+    }
+}
+
+
+function Write-CustomDebug {
+    param (
+        [object]$Message
+    )
+
+    if ($iknowwhatimdoing -eq $true) {
+        if ($Message -is [hashtable]) {
+            $tableData = @()
+            foreach ($key in $Message.Keys) {
+                $tableData += [PSCustomObject]@{
+                    Key   = $key
+                    Value = $Message[$key]
+                }
+            }
+            $tableData | Format-Table -AutoSize
+        }
+        else {
+            Write-Output "$([char]27)[33m$Message$([char]27)[0m"
+        }
     }
 }
 
@@ -52,7 +144,7 @@ function Rename-Texture {
     )
 
     if ($SkipRename) {
-        Write-output "Skipping file renaming due to SkipRename flag."
+        Write-Output "Skipping file renaming due to SkipRename flag."
         return
     }
 
@@ -87,21 +179,37 @@ function Rename-Texture {
         $_.Name -match $specificFilesPattern -or $_.Name -match $ccPattern -or $_.Name -match $fallout4Pattern -or $_.Name -match $voicesPattern
     }
 
-    if (-not $sourceFiles) {
-        Write-output "No $sourceFileType files found. Skipping renaming."
+    if (!($sourceFiles)) {
+        Write-Output "No $sourceFileType files found. Skipping renaming."
         return
     }
 
+    # Collect file information for the table
+    $fileTable = @()
+
     try {
-        Write-output "Converting files to $targetFileType..."
+        Write-Output "Converting files to $targetFileType..."
         $sourceFiles | ForEach-Object {
             $newName = $_.BaseName + $targetFileType
             Rename-Item -Path $_.FullName -NewName $newName
+            
+            # Add file information to the table
+            
+            if ($Debug -or $iknowwhatimdoing) {
+                $fileTable += [PSCustomObject]@{
+                    OriginalName = $_.Name
+                    NewName      = $newName
+                    
+                }
+            }
         }
-        Write-output "Conversion completed successfully."
+        Write-Output "Renamed BA2 files"
+
+        # Display the table
+        $fileTable | Format-Table -AutoSize
 
         if ($Wait) {
-            Write-output "Waiting for renaming operations to complete..."
+            Write-Output "Waiting for renaming operations to complete..."
             # Wait for all renaming operations to complete
             while ($true) {
                 $remainingFiles = Get-ChildItem -Path $script:data -Filter "*$sourceFileType" -Recurse -File | Where-Object {
@@ -112,13 +220,13 @@ function Rename-Texture {
                 }
                 Start-Sleep 1
             }
-            Write-output "All renaming operations completed."
+            Write-Output "All renaming operations completed."
         }
     }
     catch {
         Write-Error "An error occurred while converting files: $_"
-        Write-output "Please ensure that you have the necessary permissions to rename files and that the files are not in use by another process."
-        Write-output "Aborting script execution."
+        Write-Output "Please ensure that you have the necessary permissions to rename files and that the files are not in use by another process."
+        Write-Output "Aborting script execution."
         exit 1
     }
 }
@@ -161,83 +269,99 @@ if (!('WindowHelper' -as [Type])) {
 function QueryESP {
     if ((Test-Path $script:bsarch) -and ($scriptPath -eq (Join-Path $script:fo4 (Split-Path $PSCommandPath -Leaf)))) { 
         Write-Host "All Systems Green" -ForegroundColor Green
-        if ($Debug) {
-            Write-Host $script:bsarch
-            Write-host $scriptPath
-        }
     }
     else {
-        Wite-Host "Something went wrong during script setup. Either this script is not in the fallout 4 directory or bsarch is labeled in the .json file as used and the bsarch executable could not be found. Please fix these errors before attempting another run of this script." -ForegroundColor Red
+        Write-Error "Something went wrong during script setup. Either this script is not in the fallout 4 directory or bsarch is labeled in the .json file as used and the bsarch executable could not be found. Please fix these errors before attempting another run of this script." -ForegroundColor Red
         return
     }
 
-    if (!(Test-Path "$script:data\$mod")) {
-        Write-Output "Performing backup for: $ESP"
-    }
-    else {
-        $useOwnEsp = Read-Host "Are you using your own .esp file? (IF NOT PRESS `N` TO PATCH ALL LOADED PLUGINS) (y/n)"
-        switch ($useOwnEsp) {
-            "y" {
-                $prompt = New-Object System.Windows.Forms.OpenFileDialog -Property @{
-                    InitialDirectory = $script:data
-                    Filter           = "Elder Scrolls Plugin (*.esp)|*.esp"
-                }
-                if ($prompt.ShowDialog() -eq 'OK') {
-                    $script:ESP = [System.IO.Path]::GetFileNameWithoutExtension($prompt.FileName) + ".esp"
-                    if (![string]::IsNullOrEmpty($script:ESP)) {
-                        Write-Output "Performing backup for: $script:ESP"
-                    }
+    $useOwnEsp = Read-Host "Are you using your own .esp file? (IF NOT PRESS `N` TO PATCH ALL LOADED PLUGINS) (y/n)"
+    switch ($useOwnEsp.ToLower()) {
+        "y" {
+            $prompt = New-Object System.Windows.Forms.OpenFileDialog -Property @{
+                InitialDirectory = $script:data
+                Filter           = "Elder Scrolls Plugin (*.esp)|*.esp"
+            }
+            if ($prompt.ShowDialog() -eq 'OK') {
+                $script:ESP = [System.IO.Path]::GetFileName($prompt.FileName)
+                if (![string]::IsNullOrEmpty($script:ESP)) {
+                    Write-Output "Using ESP: $script:ESP"
                 }
             }
-            "n" {
-                $pluginprompt = Read-Host "
+            else {
+                Write-Error "No ESP file selected. Exiting script."
+                exit
+            }
+        }
+        "n" {
+            $pluginprompt = Read-Host "
 Please select one of the following:
 1. patch all loaded plugins?
 2. patch one specific plugin?
 3. don't patch anything (quit)?"
-                switch ($pluginprompt) {
-                    "1" {
-                        Write-output "Patching all loaded plugins"
-                        $script:mod = "$null"
-                        $script:ESP = "$null"
-                        $script:pas = "FO4Check_PreVisbines.pas"  # Ensure the .pas file is set
-                        Invoke-xEdit -caller 'QueryESP'
+            switch ($pluginprompt) {
+                "1" {
+                    Write-Output "Patching all loaded plugins"
+                    $seedName = Read-Host "Enter a name for your output ESP (without .esp extension)"
+                    $script:mod = ""
+                    $script:ESP = "ToastPRP-$seedName.esp"  # This will be used later in the script
+                    $script:pas = "FO4Check_PreVisbines.pas"
+                    Invoke-xEdit -caller 'QueryESP' -mod "" -seed:`"$seedName`"  # Pass the seedName to Invoke-xEdit
+                }
+                "2" {
+                    Write-Output "What ESP file would you like to patch?"
+                    $prompt = New-Object System.Windows.Forms.OpenFileDialog -Property @{
+                        InitialDirectory = $script:data
+                        Filter           = "Elder Scrolls Plugin (*.esp; *.esl; *.esm)|*.esp; *.esl; *.esm"
                     }
-                    "2" {
-                        Write-output "What ESP file would you like to patch?"
-                        $prompt = New-Object System.Windows.Forms.OpenFileDialog -Property @{
-                            InitialDirectory = $script:data
-                            Filter           = "Elder Scrolls Plugin (*.esp; *.esl; *.esm)|*.esp; *.esl; *.esm"
-                        }
-                        if ($prompt.ShowDialog() -eq 'OK') {
-                            $script:mod = [System.IO.Path]::GetFileName($prompt.FileName)
-                            $script:ESP = "ToastPRP-" + [System.IO.Path]::GetFileNameWithoutExtension($prompt.FileName) + ".esp"
-                            if (![string]::IsNullOrEmpty($script:mod)) {
-                                Write-Output "Patching ESP: $script:mod"
-                                $script:pas = "FO4Check_PreVisbines.pas"
-                                $modArgument = "`"$script:mod`""  # Properly quote the mod argument
-                                Write-output "Calling Invoke-xEdit with caller='QueryESP' and mod='$modArgument'"
-                                Invoke-xEdit -caller 'QueryESP' -mod $script:mod
-                            }
-                        }
+                    if ($prompt.ShowDialog() -eq 'OK') {
+                        $script:mod = [System.IO.Path]::GetFileName($prompt.FileName)
+                        $script:ESP = "ToastPRP-" + [System.IO.Path]::GetFileNameWithoutExtension($script:mod) + ".esp"
+                        $script:pas = "FO4Check_PreVisbines.pas"
+                        Write-Output "Patching ESP: $script:mod"
+                        Write-CustomDebug "Calling Invoke-xEdit with caller='QueryESP' and mod='$script:mod'"
+                        Invoke-xEdit -caller 'QueryESP' -mod $script:mod
                     }
-                    "3" {
-                        $script:ESP = $null
-                        Write-Output "Goodbye!"
+                    else {
+                        Write-Error "No ESP file selected. Exiting script."
                         exit
                     }
                 }
+                "3" {
+                    Write-Output "Goodbye!"
+                    exit
+                }
+                default {
+                    Write-Error "Invalid option selected. Exiting script."
+                    exit
+                }
             }
         }
-        $script:EXT = [System.IO.Path]::GetFileNameWithoutExtension($script:ESP)
-        $script:PSG = "$script:data\$($script:EXT) - Geometry.psg"
-        $script:CSG = "$script:data\$($script:EXT) - Geometry.csg"
-        if ($Debug) {
-            # Debugging output UNCOMMENT TO USE
-            Write-Debug "ESP: $script:ESP"
-            Write-Debug "EXT: $script:EXT"
-            Write-Debug "PSG: $script:PSG"
-            Write-Debug "CSG: $script:CSG"
+        default {
+            Write-Error "Invalid input. Exiting script."
+            exit
+        }
+    }
+
+    # Set common variables after ESP is determined
+    $script:EXT = [System.IO.Path]::GetFileNameWithoutExtension($script:ESP)
+    $script:PSG = "$script:data\$($script:EXT) - Geometry.psg"
+    $script:CSG = "$script:data\$($script:EXT) - Geometry.csg"
+    $script:workingdir = Join-Path $script:data "workingdir"
+    $script:ba2 = Join-Path $script:data "$script:EXT - Main.ba2"
+
+    if ($debug -or $iknowwhatimdoing) {
+        Write-CustomDebug -Message @{
+            "Bsarch"            = $script:bsarch
+            "PWD"               = $PSCommandPath
+            "Fallout 4 Path"    = $script:fo4
+            "FO4 Data Path"     = $script:data
+            "ESP"               = $script:ESP
+            "EXT"               = $script:EXT
+            "PSG"               = $script:PSG
+            "CSG"               = $script:CSG
+            "Working Directory" = $script:workingdir
+            "BA2 Path"          = $script:ba2
         }
     }
     # Create a unique folder for this attempt
@@ -245,14 +369,19 @@ Please select one of the following:
     if (!(Test-Path $logFolder)) {
         New-Item -ItemType Directory -Path $logFolder -Force | Out-Null
     }
-    $mainLogPath = "$script:data\ToastPRP\Logs\$script:EXT-{0:MM-dd-yyyy-HH-mm}.log" -f (Get-Date)
-    Start-Transcript -Path $mainLogPath
-    # Define the log file path for this attempt
+    $script:mainLogPath = "$script:data\ToastPRP\Logs\$script:EXT-{0:MM-dd-yyyy-HH-mm}.log" -f (Get-Date)
+    Start-Transcript -Path $script:mainLogPath
     $script:logPath = "$logFolder"
-    if (Test-Path *pack*.log){
+    if (Test-Path *pack*.log) {
         Remove-Item *pack*.log -Force -ErrorAction SilentlyContinue
         Write-Output "Removing undeleted orphan logs in path"
     }
+    try {
+        Log2Transcript $script:PJMLog
+    } catch {
+        Write-Error "Error in Log2Transcript: $_"
+    }
+    Write-Output "ESP setup completed successfully."
 }
 
 function Invoke-xEdit {
@@ -260,113 +389,234 @@ function Invoke-xEdit {
         [string]$caller,
         [string]$mod = $null
     )
-    if ($Debug) {
-        # Debugging output UNCOMMENT TO USE
-        Write-output "Caller: $caller"
-        Write-output "Mod: $mod"
-        Write-output "ESP: $script:ESP"
-        Write-output "xEdit: $xEdit"
-        Write-output "Script: $script:pas"
+
+    # Get ESP path
+    $espPath = Join-Path $script:data $script:ESP
+    
+    # Initialize checksum
+    $initialChecksum = $null
+    
+    switch (Test-Path $espPath) {
+        $true {
+            $initialChecksum = Get-FileHash -Path $espPath -Algorithm SHA256
+            
+            if ($debug -or $iknowwhatimdoing) {
+                Write-CustomDebug -Message @{
+                    "Caller:"          = $caller
+                    "Mod:"             = $mod
+                    "xEdit:"           = $xEdit
+                    "Script:"          = $script
+                    "Initial Checksum" = $initialChecksum.Hash
+                }
+            }
+        }
+        $false {
+            if ($debug -or $iknowwhatimdoing) {
+                Write-CustomDebug -Message "New ESP file will be created: $script:ESP"
+            }
+        }
     }
+
+    # Determine script arguments based on caller
     switch ($caller) {
         'QueryESP' {
-            if ($mod) {
-                # Handle the case where $caller is 'QueryESP' and $mod is not null
-                $modWithoutExtension = [System.IO.Path]::GetFileNameWithoutExtension($mod)
-                $modWithEspExtension = "ToastPRP-$modWithoutExtension.esp"
-                $scriptArgument = "-script:`"$script:pas`" -Full -nobuildrefs -Mod:`"$mod`" -seed:`"$modWithEspExtension`""
-                if ($debug) { Write-output "Argument is $scriptArgument" }  # Debugging output
-                $KeysToSend = "Enter"
-            }
-            else {
-                # Handle the case where $caller is 'QueryESP' but $mod is null
-                $scriptArgument = "-script:`"$script:pas`" -Full -nobuildrefs"
-                $KeysToSend = "Enter"
+            switch ($mod) {
+                '' {
+                    $scriptArgument = "-script:`"$script:pas`" -Full -nobuildrefs -mod -seed:`"ToastPRP-$seedName.esp`" -log:$script:PJMLog"
+                    $KeysToSend = "Enter"
+                }
+                default {
+                    $modWithoutExtension = [System.IO.Path]::GetFileNameWithoutExtension($mod)
+                    $modWithEspExtension = "ToastPRP-$modWithoutExtension.esp"
+                    $scriptArgument = "-script:`"$script:pas`" -Full -nobuildrefs -Mod:`"$mod`" -seed:`"$modWithEspExtension`" -log:$script:PJMLog"
+                    $KeysToSend = "Enter"
+                }
             }
         }
         default {
-            $scriptArgument = "-script:`"$script:pas`" -nobuildrefs -Mod:`"$script:ESP`""
+            $scriptArgument = "-script:`"$script:pas`" -nobuildrefs -Mod:`"$script:ESP`" -log:$script:PJMLog"
             $KeysToSend = "PageDown", "Space", "Enter"
         }
     }
 
-    if ($debug) { Write-output "Argument is $scriptArgument" }
+    if ($debug -or $iknowwhatimdoing) { Write-CustomDebug -Message "Argument is $scriptArgument" }
+    
+    # Start xEdit process
     $xEditProcess = Start-Process -FilePath $xEdit -ArgumentList $scriptArgument -PassThru -NoNewWindow
-    Start-Sleep 3
+    Start-Sleep -Seconds 3
+    
+    # Initialize state variables
+    $script:firstFO4ScriptDetected = $false
+    $script:seenApplyingScript = $false
+    $script:alreadyReportedApplyingScript = $false
+    $script:exitLoop = $false
+    $currentTitle = ""
+    $lastTitle = ""
+    $startTime = Get-Date
+    $timeout = 900 # 15 minute timeout
 
+    # Send initial keystrokes
     if ($KeysToSend) {
         Keypress -KeysToSend $KeysToSend
     }
 
-    # Initialize flags
-    $script:firstFO4ScriptDetected = $false
-    $script:seenApplyingScript = $false
-    $script:alreadyReportedApplyingScript = $false
-    $script:exitLoop = $false  # Flag to control the outer loop
+    # Window title monitoring loop
+    while (-not $script:exitLoop) {
+        $titleBuilder = New-Object System.Text.StringBuilder 256
+        [WindowHelper]::GetWindowText($xEditProcess.MainWindowHandle, $titleBuilder, $titleBuilder.Capacity) | Out-Null
+        $currentTitle = $titleBuilder.ToString()
 
-    while ($true) {
-        $title = New-Object System.Text.StringBuilder 256
-        [WindowHelper]::GetWindowText($xEditProcess.MainWindowHandle, $title, $title.Capacity) | Out-Null
-        $title = $title.ToString()
-
-        switch -Regex ($title) {
-            "FO4Script" {
-                if ($seenApplyingScript) {
-                    # Only act if "Applying script" has been seen before
-                    Write-Output "xEdit script completed, closing..."
-                    Write-Output "xEdit closed:"
-                    Start-Sleep -Seconds 2 # Adjust countdown as needed
-                    $xEditProcess.CloseMainWindow()
-                    $xEditProcess.WaitForExit()
-                    $exitLoop = $true  # Set flag to exit the loop
-                    break  # This breaks out of the switch, but we need to exit the while loop too
-                }
-                else {
-                    $firstFO4ScriptDetected = $true
-                    if ($Debug) {
-                        Write-Output "$title"
-                    }
-                }
-            }
-            "Applying script" {
-                if (-not $alreadyReportedApplyingScript) {
-                    # Ensure this message is only shown once per applying phase
-                    Write-Output "Waiting for script completion" 
-                    $seenApplyingScript = $true
-                    $alreadyReportedApplyingScript = $true
-                }
+        # Check for timeout
+        switch ((Get-Date) - $startTime) {
+            { $_.TotalSeconds -gt $timeout } {
+                Write-Error "Operation timed out after $timeout seconds"
+                $xEditProcess.CloseMainWindow()
+                return $false
             }
         }
 
-        if ($exitLoop) {
-            break  # Breaks the while loop if $exitLoop is set to $true
+        # Title change detection
+        switch ($currentTitle -ne $lastTitle) {
+            $true {
+                if ($debug -or $iknowwhatimdoing) {
+                    Write-CustomDebug -Message "Title changed from '$lastTitle' to '$currentTitle'"
+                }
+
+                # Process title states
+                switch -Regex ($currentTitle) {
+                    "FO4Script" {
+                        $script:firstFO4ScriptDetected = $true
+                        switch ($script:seenApplyingScript) {
+                            $true {
+                                Write-Output "xEdit script completed, closing..."
+                                Start-Sleep -Seconds 2
+                                $xEditProcess.CloseMainWindow()
+                                $xEditProcess.WaitForExit(5000)
+                                $script:exitLoop = $true
+                            }
+                            $false {
+                                if ($debug -or $iknowwhatimdoing) {
+                                    Write-CustomDebug -Message "Initial FO4Script state detected"
+                                }
+                            }
+                        }
+                    }
+                    "Applying script" {
+                        switch ($script:alreadyReportedApplyingScript) {
+                            $false {
+                                Write-Output "Waiting for script completion"
+                                $script:seenApplyingScript = $true
+                                $script:alreadyReportedApplyingScript = $true
+                                Start-Sleep -Milliseconds 500
+                            }
+                        }
+                    }
+                    default {
+                        if ($debug -or $iknowwhatimdoing) {
+                            Write-CustomDebug -Message "Unhandled window title: $currentTitle"
+                        }
+                    }
+                }
+                $lastTitle = $currentTitle
+            }
+        }
+        Start-Sleep -Milliseconds 50
+    }
+
+    # Verify script execution
+    switch ($script:firstFO4ScriptDetected) {
+        $false {
+            Write-Error "xEdit script did not run successfully"
+            return $false
+        }
+    }
+
+    # Checksum verification
+    switch ($initialChecksum) {
+        { $null -ne $_ } {
+            Start-Sleep -Seconds 2
+            $finalChecksum = Get-FileHash -Path $espPath -Algorithm SHA256
+
+            if ($debug -or $iknowwhatimdoing) {
+                Write-CustomDebug -Message @{
+                    "Initial Checksum" = $initialChecksum.Hash
+                    "Final Checksum"   = $finalChecksum.Hash
+                }
+            }
+
+            switch ($initialChecksum.Hash -eq $finalChecksum.Hash) {
+                $true {
+                    Write-Error "ESP file was not modified by xEdit script! Checksums match, indicating no changes were made."
+                    Write-Error "Initial: $($initialChecksum.Hash)"
+                    Write-Error "Final: $($finalChecksum.Hash)"
+                    
+                    $backupPath = Join-Path "$script:data\ToastPRP\ESP_Backups" $script:ESP
+                    switch (Test-Path $backupPath) {
+                        $true {
+                            Write-Output "Attempting to restore from backup..."
+                            try {
+                                Copy-Item -Path $backupPath -Destination $espPath -Force
+                                Write-Output "Backup restored successfully"
+                            }
+                            catch {
+                                Write-Error "Failed to restore backup: $_"
+                            }
+                        }
+                    }
+                    throw "xEdit script failed to modify ESP file. Script execution aborted."
+                }
+                $false {
+                    Write-Output "ESP file was successfully modified (checksums differ)"
+                    Log2Transcript $script:PJMLog
+                    
+                    if ($caller -eq 'Precombines') {
+                        Remove-Item $script:CombinedESP
+                    }
+                    if ($caller -eq 'Previs') {
+                        Remove-Item $script:previsESP
+                    }
+                    return $true
+                }
+            }
+        }
+        default {
+            switch (Test-Path $espPath) {
+                $true {
+                    Write-Output "New ESP file was successfully created"
+                    Log2Transcript $script:PJMLog
+                    return $true
+                }
+                $false {
+                    Write-Error "Failed to create new ESP file"
+                    throw "xEdit script failed to create new ESP file. Script execution aborted."
+                }
+            }
         }
     }
 }
 
 function Invoke-CK ([string]$Argument) {
-    if ($Debug) {
+    if ($debug -or $iknowwhatimdoing) {
         # Table of arguments for debugging
-        $argumentsTable = 
-        "
-    _____________________________________________________________
-    | Function       | Argument                                 |
-    |----------------|-----------------------------------       |
-    | Precombines    | -GeneratePrecombined:`"$script:ESP`"     |
-    | PSGCompression | -CompressPSG:`"$script:ESP`"             |
-    | GenerateCDX    | -buildcdx:`"$script:ESP`"                |
-    | Previs         | -GeneratePreVisdata:`"$script:ESP`"      |
-    ￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣￣
-    "
-    
-        Write-Debug $argumentsTable
+        # Create an array of custom objects
+        $tableData = @(
+            [PSCustomObject]@{ Function = "Precombines"; Argument = "-GeneratePrecombined:`"$ESP`"" }
+            [PSCustomObject]@{ Function = "PSGCompression"; Argument = "-CompressPSG:`"$ESP`"" }
+            [PSCustomObject]@{ Function = "GenerateCDX"; Argument = "-buildcdx:`"$ESP`"" }
+            [PSCustomObject]@{ Function = "Previs"; Argument = "-GeneratePreVisdata:`"$ESP`"" }
+        )
+
+        # Display the table using Format-Table
+        $tableData | Format-Table -AutoSize
+
     }
     # Switch statement to handle different arguments
     switch ($Argument) {
         "Precombines" {
             Rename-Texture -ba2
+            Write-Output "Generating Precombines..."
             $ckArgument = "-GeneratePrecombined:`"$script:ESP`" clean all"
-            $script:pas = "Batch_FO4MergeCombinedObjectsAndCheck.pas"
+            $script:pas = "Batch_FO4MergeCombinedObjectsandCheck.pas"
         }
         "PSGCompression" {
             Rename-Texture -ba22
@@ -379,7 +629,7 @@ function Invoke-CK ([string]$Argument) {
             $ckArgument = "-buildcdx:`"$script:ESP`""
         }
         "Previs" {
-            Rename-Texture -ba2
+            Rename-Texture -BA22
             Write-Output "Generating Previs Data..."
             $ckArgument = "-GeneratePreVisdata:`"$script:ESP`" clean all"
             $script:pas = "Batch_FO4MergePreVisandCleanRefr.pas"
@@ -389,13 +639,15 @@ function Invoke-CK ([string]$Argument) {
             return
         }
     }
-
-    if ($debug) { Write-Output "Starting Creation Kit with arguments: $ckArgument" }
+    
+    if ($debug -or $iknowwhatimdoing) { Write-CustomDebug -Message "Starting Creation Kit with arguments: $ckArgument" }
     $startTime = Get-Date
     Start-Process -FilePath $script:CK -ArgumentList $ckArgument -Wait
+    #Log2Transcript "CKLOG.log"
     
     Write-Output "Completed in $(New-TimeSpan -Start $startTime -End (Get-Date))."
 }
+
 #PEBKAC 
 function Keypress {
     [CmdletBinding()]
@@ -422,7 +674,7 @@ function Wait-ForFile {
     param(
         [Parameter(Mandatory = $true)]
         [string]$FileName,
-        [int]$TimeoutSeconds = 60,
+        [int]$TimeoutSeconds = 10,
         [string]$Caller
     )
     
@@ -448,8 +700,8 @@ function Wait-ForFile {
         
         $elapsedTime = (Get-Date) - $startTime
         if ($elapsedTime.TotalSeconds -ge $TimeoutSeconds) {
-            Write-Warning "Timeout reached while waiting for $FileName to appear."
-            break
+            Write-Warning "Timeout reached while waiting for $FileName to appear, aborting."
+            exit
         }
 
         Start-Sleep -Milliseconds $pollInterval
@@ -466,20 +718,19 @@ function Wait-ForFile {
             'Precombines' {
                 Write-output "Calling Invoke-xEdit with caller='Precombines' and mod='$SelectedFile'"
                 Invoke-xEdit -caller 'Precombines'  # Moved before removing CombinedObjects.esp
-                if (Test-Path $script:CombinedESP) {
-                    Remove-Item $script:CombinedESP
-                }
-                else {
-                    Write-output "$combinedESP not found. Exiting..."
-                    Exit
-                }
+                
             }
             'CreateZIP' {
                 Remove-Item $filesToCompress
             }
+            'Previs' {
+                Write-output "Calling Invoke-xEdit with caller='Previs' and mod='$SelectedFile'"
+                Invoke-xEdit -caller 'Previs'  # Moved before removing CombinedObjects.esp
+                
+            }
             # Add more cases as needed
             default {
-                if ($debug) { Write-Output "No action taken for caller: $Caller" }
+                if ($debug -or $iknowwhatimdoing) { Write-Output "No action taken for caller: $Caller" }
             }
         }
     }
@@ -494,10 +745,8 @@ function Backup-ESP {
     # Ensure the backup directory exists
     New-Item -ItemType Directory -Path $backupPath -Force | Out-Null
     
-    # Construct the backup file path using only the name of the ESP file
     $backupFilePath = Join-Path -Path $backupPath -ChildPath $ESP
     
-    # Copy the ESP file to the backup directory
     $oldFilePath = Join-Path -Path $script:data -ChildPath $ESP
     try {
         Copy-Item -LiteralPath "$oldFilePath" -Destination "$backupFilePath" -Force -ErrorAction Stop
@@ -571,13 +820,13 @@ function ManageJson {
 function DLBSArch {
     param (
         [string]$BsarchUrl = "https://github.com/TES5Edit/TES5Edit/raw/dev/Tools/BSArchive/bsarch.exe",
-        [string]$PredefinedChecksum = "fb37aa274fa3756756012644c9fe8636"
+        [string]$PredefinedChecksum = "97FB589E0542806F105C28FF005C8DD51EEB118E0A18497247590A3BBA73D865D3956B769E6128ED63A3D5333017949EA26AC6DC87570E05FE50CBB3E7C51CC3"
     )
 
     # Helper function to download bsarch.exe and validate checksum
     function DownloadAndValidateBsarch {
         Invoke-WebRequest -Uri $BsarchUrl -OutFile $script:bsarch
-        $hash = (Get-FileHash $script:bsarch -Algorithm MD5).Hash
+        $hash = (Get-FileHash $script:bsarch -Algorithm SHA512).Hash
         if ($hash -eq $PredefinedChecksum) {
             Write-output "bsarch.exe downloaded and validated successfully."
             return $true
@@ -609,6 +858,7 @@ function DLBSArch {
         Write-output "ToastPRP.json has been updated with the bsarch path."
     }
 }
+
 function Invoke-Archiver {
     param (
         [bool]$CheckBa2Path = $false,
@@ -624,28 +874,17 @@ function Invoke-Archiver {
             return
         }
 
-        # Check if working directory is null
-        if ($null -eq $script:workingdir) {
-            Write-Error "The working directory path is null. Please ensure it is properly defined."
-            return
-        }
-
         # Ensure working directory exists
         if (!(Test-Path $script:workingdir)) {
             New-Item -ItemType Directory -Path $script:workingdir -Force | Out-Null
         }
-
-        # Ensure Meshes subdirectory exists
-        $meshesSubdir = Join-Path $script:workingdir "Meshes"
-        if (!(Test-Path $meshesSubdir)) {
-            New-Item -ItemType Directory -Path $meshesSubdir | Out-Null
-        }
-
+        $script:visSubdir = Join-Path $script:workingdir "vis"
+        $script:MeshesSubdir = Join-Path $script:workingdir "Meshes"
         # Handle different calling functions
         switch ($CallingFunction) {
             "PackMesh" {
                 if (Test-Path $script:Meshesdir) {
-                    Get-ChildItem -Path $script:Meshesdir -ErrorAction SilentlyContinue | Move-Item -Destination $meshesSubdir -Force -ErrorAction SilentlyContinue
+                    Move-Item -Path $script:Meshesdir -Destination $script:workingdir -Force -ErrorAction SilentlyContinue
                 }
                 else {
                     Write-Warning "The source directory '$script:Meshesdir' does not exist."
@@ -653,18 +892,14 @@ function Invoke-Archiver {
             }
             "PackMeshVis" {
                 if (Test-Path $script:Meshesdir) {
-                    Get-ChildItem -Path $script:Meshesdir -ErrorAction SilentlyContinue | Copy-Item -Destination $meshesSubdir -Recurse -Force -ErrorAction SilentlyContinue
+                    Move-Item -Path $script:Meshesdir -Destination $script:workingdir -Force -ErrorAction SilentlyContinue
                 }
                 else {
                     Write-Warning "The source directory '$script:Meshesdir' does not exist."
                 }
-
-                $visSubdir = Join-Path $script:workingdir "vis"
-                if (!(Test-Path $visSubdir)) {
-                    New-Item -ItemType Directory -Path $visSubdir | Out-Null
-                }
+                
                 if (Test-Path $script:PrevisDIR) {
-                    Get-ChildItem -Path $script:PrevisDIR -ErrorAction SilentlyContinue | Copy-Item -Destination $visSubdir -Recurse -Force -ErrorAction SilentlyContinue
+                    Move-Item -Path $script:PrevisDIR -Destination $script:workingdir -Force -ErrorAction SilentlyContinue
                 }
                 else {
                     Write-Warning "The source directory '$script:PrevisDIR' does not exist."
@@ -681,32 +916,35 @@ function Invoke-Archiver {
 
         # Unpacking operation
         if ($CheckBa2Path) {
-            Write-Debug "Unpacking archive: $script:ba2 to $script:workingdir"
+            Write-CustomDebug -Message "Unpacking archive: $script:ba2 to $script:workingdir"
             $unpackOutput = & $script:bsarch "unpack" "$script:ba2" "$script:workingdir" "-mt" 2>&1
             $unpackOutput | Tee-Object -FilePath $unpackLogPath
             Write-Output "Unpacking log saved to $unpackLogPath"
             #Add-Content -Path $mainLogPath -Value (Get-Content $unpackLogPath)
             Remove-Item $unpackLogPath
         }
+        if ((Get-ChildItem -Path $meshesSubdir) -or (Get-ChildItem -Path $meshesSubdir -Recurse)) {
+            # Packing operation
+            Write-CustomDebug -Message "Packing directory: $script:workingdir into archive: $script:ba2"
+            $packOutput = & $script:bsarch "pack" "$script:workingdir" "$script:ba2" "-fo4" "-z" "-mt" "-share" 2>&1
+            $packOutput | Tee-Object -FilePath $packLogPath
+            Write-Output "Packing log saved to $packLogPath"
+            #Add-Content -Path $mainLogPath -Value (Get-Content $packLogPath)
+            Remove-Item $packLogPath
+        }
+        else {
+            Write-Error "The source directory '$script:workingdir' is empty. No packing operation performed."
+        }
 
-        # Packing operation
-        Write-Debug "Packing directory: $script:workingdir into archive: $script:ba2"
-        $packOutput = & $script:bsarch "pack" "$script:workingdir" "$script:ba2" "-fo4" "-z" "-mt" "-share" 2>&1
-        $packOutput | Tee-Object -FilePath $packLogPath
-        Write-Output "Packing log saved to $packLogPath"
-        #Add-Content -Path $mainLogPath -Value (Get-Content $packLogPath)
-        Remove-Item $packLogPath
-
-    }
+        # Clean up working directory if needed
+        if ($CheckBa2Path) {
+            Remove-Item -Path $script:workingdir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    } 
     catch {
-        Write-Error "An error occurred during archiving: $_"
-        Write-output "Error Details: $_"
-        return
-    }
-
-    # Clean up working directory if needed
-    if ($CheckBa2Path) {
-        Remove-Item -Path $script:workingdir -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Error "An error occurred during unpacking: $_"
+        Write-Output "Error Details: $_"
+        throw  # Re-throw the error to be caught by the calling function if needed
     }
 }
 #PEBKAC
@@ -763,53 +1001,60 @@ function MoveScriptToCorrectDirectory {
 #==================================================================================================================================================================================================================================================================================================== # 
 
 function Precombines {
-    Write-Output "Generating Precombines..."
     ManageJson -CalledByPrecombines
     Invoke-CK -Argument "Precombines"
-    $script:done.Invoke() 
     Wait-ForFile -FileName $script:CombinedESP -Caller "Precombines"
-    Remove-Item "$script:CombinedESP"
-    $script:done.Invoke() 
+    $done 
+    $script:precombinesran = $true
 }
 
 function PSGCompression {
-    Invoke-CK -Argument "PSGCompression"
-    Wait-ForFile -FileName $script:CSG -Caller 'PSGCompression'
-    if (Test-Path "$EXT - Geometry.csg") {
-        Remove-Item "$EXT - Geometry.psg" -Force
+    if ($script:precombinesran -eq $true) {
+        Invoke-CK -Argument "PSGCompression"
+        Wait-ForFile -FileName $script:CSG -Caller 'PSGCompression'
+        if (Test-Path "$EXT - Geometry.csg") {
+            Remove-Item "$EXT - Geometry.psg" -Force
+        }
+    }
+    else {
+        Write-Error "Precombines has not been ran. Cannot run PSGCompression."
+        exit
     }
 }
 
 function PackMesh {
     Write-Output "Making Archive of Files to accelerate generation..."
-    Invoke-Archiver -ErrorAction Stop -CallingFunction "PackMesh"
-    $script:done.Invoke() 
+    try {
+        Invoke-Archiver -CallingFunction "PackMesh"
+        $done 
+    }
+    catch {
+        Write-Error "PackMesh failed: $_"
+    }
 }
 
 function GenerateCDX { 
     Invoke-CK -Argument "GenerateCDX"
-    $script:done.Invoke() 
+    $done 
 }
 
 function Previs {
     Invoke-CK -Argument "Previs"
-    Wait-ForFile $script:previsESP
-    Invoke-xEdit # Moved before removing previsESP
-    Wait-ForFile -FileName $script:previsESP -Caller "Previs"
-    Remove-Item $script:previsESP
-    $script:done.Invoke() 
+    Wait-ForFile -FileName $script:PrevisESP -Caller "Previs"
+    $done
+    $script:previsran = $true
 }
 
 function PackMeshVis {
-    Rename-Texture -ba2
     Write-Output "Making Archive of Files to finalize structure..."
     if ($null -ne $script:workingdir -and $null -ne $script:ba2) {
         Invoke-Archiver -CheckBa2Path $true -CallingFunction "PackMeshVis"
     }
     else {
-        Write-Error "Required paths are null. Cannot proceed with archiving."
+        Write-Error "Required paths are null. Cannot proceed with archiving, closing script."
+        exit
     }
-    $script:done.Invoke() 
+    $done
 }
 
 function CreateZip {
@@ -835,7 +1080,7 @@ function CreateZip {
     Write-Output "Zipped files deleted"
 }
 
-$jsonContent = ManageJson
+$jsonContent = ManageJson | Out-Null
 
 $functions = @(
     "Precombines",
@@ -844,7 +1089,22 @@ $functions = @(
     "GenerateCDX",
     "Previs",
     "PackMeshVis"
+    "CreateZip"
 )
+
+function OneOffExecution {
+    param (
+        [string]$OneOff
+    )
+
+    if ($functions -contains $OneOff) {
+        Write-Verbose "Executing one-off function: $OneOff"
+        & $OneOff
+    }
+    else {
+        Write-Error "Function '$OneOff' does not exist."
+    }
+}
 
 function Execute {
     param (
@@ -880,12 +1140,6 @@ function Execute {
     foreach ($functionName in $functions[$startFunction..($functions.Count - 1)]) {
         if (Get-Command $functionName -ErrorAction SilentlyContinue) {
             Write-Verbose "Executing function: $functionName"
-            if ($functionName -eq "PackMeshVis") {
-                if ($null -eq $script:EXT) {
-                    Write-Error "EXT variable is not set. Cannot proceed with archiving."
-                    continue
-                }
-            }
             & $functionName
         }
         else {
@@ -893,7 +1147,6 @@ function Execute {
         }
     }
 }
-
 
 if (!($Debug)) {
     $introText = @"
@@ -923,15 +1176,21 @@ try {
     MoveScriptToCorrectDirectory
     DLBSArch
     QueryESP
-    Backup-ESP
-    Execute
-    CreateZip
+
+    if ($OneOff) {
+        OneOffExecution -OneOff $OneOff
+    }
+    else {
+        Backup-ESP
+        Execute
+        Rename-Texture -BA2
+    }
 }
 catch {
     Write-Error "An error occurred: $_"
 }
 finally {
-    Write-output "Previsbines automation completed."
-        Stop-Transcript
-    
+    Write-Output "Previsbines automation completed without error."
+    Write-Host "Thank you for using Cannibal Toasts' Previsbine Generation Script. Stay Toasty!!" -ForegroundColor Green
+    Stop-Transcript
 }
