@@ -30,6 +30,9 @@ $script:jsonFilePath = Join-Path $script:fo4 $script:jsonFileName
 $script:bsarch = Join-Path $script:fo4 "bsarch.exe"
 $script:done = "$([char]27)[32mDone!$([char]27)[0m"
 $script:PJMLog = "Toast-PJM-{0:MM-dd-yyyy-HH-mm}.log" -f (Get-Date)
+# Texture/voice BA2 archives live in the Data folder root (not subfolders).
+$script:TextureArchiveNamePattern = '^(DLC.* - Textures.*|cc.* - Textures.*|Fallout4 - Textures.*|(Fallout4|DLC.*|cc.*) - Voices.*)$'
+$script:executionSucceeded = $true
 #PEBKAC
 switch ($true) {
     ($toast -eq $true) {
@@ -134,9 +137,17 @@ function Write-CustomDebug {
     }
 }
 
+function Get-TextureArchiveFiles {
+    param(
+        [string]$Extension
+    )
+
+    Get-ChildItem -Path $script:data -Filter "*$Extension" -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match $script:TextureArchiveNamePattern }
+}
+
 function Rename-Texture {
     param (
-        [string]$Caller,
         [switch]$BA2, # Parameter to indicate conversion to .ba2
         [switch]$BA22, # Parameter to indicate conversion to .ba22
         [switch]$SkipRename,
@@ -168,16 +179,7 @@ function Rename-Texture {
         }
     }
 
-    # Define the regex pattern for specific files and patterns
-    $specificFilesPattern = "^DLC.* - Textures.*$"
-    $ccPattern = "^cc.* - Textures.*$"
-    $fallout4Pattern = "^Fallout4 - Textures*.*$"
-    $voicesPattern = "^(Fallout4|DLC.*|cc.*) - Voices.*$"  # Added pattern for Voices
-
-    # Get all relevant files
-    $sourceFiles = Get-ChildItem -Path $script:data -Filter "*$sourceFileType" -Recurse -File | Where-Object {
-        $_.Name -match $specificFilesPattern -or $_.Name -match $ccPattern -or $_.Name -match $fallout4Pattern -or $_.Name -match $voicesPattern
-    }
+    $sourceFiles = @(Get-TextureArchiveFiles -Extension $sourceFileType)
 
     if (!($sourceFiles)) {
         Write-Output "No $sourceFileType files found. Skipping renaming."
@@ -212,10 +214,8 @@ function Rename-Texture {
             Write-Output "Waiting for renaming operations to complete..."
             # Wait for all renaming operations to complete
             while ($true) {
-                $remainingFiles = Get-ChildItem -Path $script:data -Filter "*$sourceFileType" -Recurse -File | Where-Object {
-                    $_.Name -match $specificFilesPattern -or $_.Name -match $ccPattern -or $_.Name -match $fallout4Pattern -or $_.Name -match $voicesPattern
-                }
-                if (-not $remainingFiles) {
+                $remainingFiles = @(Get-TextureArchiveFiles -Extension $sourceFileType)
+                if (-not $remainingFiles.Count) {
                     break
                 }
                 Start-Sleep 1
@@ -267,12 +267,12 @@ if (!('WindowHelper' -as [Type])) {
 }
 
 function QueryESP {
-    if ((Test-Path $script:bsarch) -and ($scriptPath -eq (Join-Path $script:fo4 (Split-Path $PSCommandPath -Leaf)))) { 
+    $expectedScriptPath = Join-Path $script:fo4 (Split-Path $PSCommandPath -Leaf)
+    if ((Test-Path $script:bsarch) -and ($PSCommandPath -eq $expectedScriptPath)) {
         Write-Host "All Systems Green" -ForegroundColor Green
     }
     else {
-        Write-Error "Something went wrong during script setup. Either this script is not in the fallout 4 directory or bsarch is labeled in the .json file as used and the bsarch executable could not be found. Please fix these errors before attempting another run of this script." -ForegroundColor Red
-        return
+        throw "Script setup failed. Place ToastPRP.ps1 in the Fallout 4 install directory and ensure bsarch.exe is present or can be downloaded."
     }
 
     $useOwnEsp = Read-Host "Are you using your own .esp file? (IF NOT PRESS `N` TO PATCH ALL LOADED PLUGINS) (y/n)"
@@ -823,27 +823,28 @@ function DLBSArch {
         [string]$PredefinedChecksum = "97FB589E0542806F105C28FF005C8DD51EEB118E0A18497247590A3BBA73D865D3956B769E6128ED63A3D5333017949EA26AC6DC87570E05FE50CBB3E7C51CC3"
     )
 
-    # Helper function to download bsarch.exe and validate checksum
-    function DownloadAndValidateBsarch {
-        Invoke-WebRequest -Uri $BsarchUrl -OutFile $script:bsarch
+    function Test-BsarchChecksum {
+        if (!(Test-Path $script:bsarch)) { return $false }
         $hash = (Get-FileHash $script:bsarch -Algorithm SHA512).Hash
-        if ($hash -eq $PredefinedChecksum) {
-            Write-output "bsarch.exe downloaded and validated successfully."
-            return $true
-        }
-        else {
-            Write-output "Downloaded bsarch.exe failed checksum validation. Either download failed or the executable was updated on the github repo."
-            Remove-Item -Path $script:bsarch -ErrorAction SilentlyContinue
-            return $false
-        }
+        return $hash -eq $PredefinedChecksum
     }
 
-    # Check if bsarch.exe exists and validate checksum, download if necessary
-    if (!(Test-Path $script:bsarch) -or -not (DownloadAndValidateBsarch)) {
-        Write-output "Attempting to download and validate bsarch.exe..."
+    function DownloadAndValidateBsarch {
+        Invoke-WebRequest -Uri $BsarchUrl -OutFile $script:bsarch
+        if (Test-BsarchChecksum) {
+            Write-Output "bsarch.exe downloaded and validated successfully."
+            return $true
+        }
+
+        Write-Output "Downloaded bsarch.exe failed checksum validation. Either download failed or the executable was updated on the GitHub repo."
+        Remove-Item -Path $script:bsarch -ErrorAction SilentlyContinue
+        return $false
+    }
+
+    if (!(Test-Path $script:bsarch) -or !(Test-BsarchChecksum)) {
+        Write-Output "Attempting to download and validate bsarch.exe..."
         if (!(DownloadAndValidateBsarch)) {
-            Write-output "Failed to obtain a valid bsarch.exe after download attempt. Please check the source or try again later."
-            return
+            throw "Failed to obtain a valid bsarch.exe. Check your network connection or download it manually."
         }
     }
 
@@ -881,29 +882,20 @@ function Invoke-Archiver {
         $script:visSubdir = Join-Path $script:workingdir "vis"
         $script:MeshesSubdir = Join-Path $script:workingdir "Meshes"
         # Handle different calling functions
-        switch ($CallingFunction) {
-            "PackMesh" {
-                if (Test-Path $script:Meshesdir) {
-                    Move-Item -Path $script:Meshesdir -Destination $script:workingdir -Force -ErrorAction SilentlyContinue
-                }
-                else {
-                    Write-Warning "The source directory '$script:Meshesdir' does not exist."
-                }
+        if ($CallingFunction -in @('PackMesh', 'PackMeshVis')) {
+            if (Test-Path $script:Meshesdir) {
+                Move-Item -Path $script:Meshesdir -Destination $script:workingdir -Force -ErrorAction SilentlyContinue
             }
-            "PackMeshVis" {
-                if (Test-Path $script:Meshesdir) {
-                    Move-Item -Path $script:Meshesdir -Destination $script:workingdir -Force -ErrorAction SilentlyContinue
-                }
-                else {
-                    Write-Warning "The source directory '$script:Meshesdir' does not exist."
-                }
-                
-                if (Test-Path $script:PrevisDIR) {
-                    Move-Item -Path $script:PrevisDIR -Destination $script:workingdir -Force -ErrorAction SilentlyContinue
-                }
-                else {
-                    Write-Warning "The source directory '$script:PrevisDIR' does not exist."
-                }
+            else {
+                Write-Warning "The source directory '$script:Meshesdir' does not exist."
+            }
+        }
+        if ($CallingFunction -eq 'PackMeshVis') {
+            if (Test-Path $script:PrevisDIR) {
+                Move-Item -Path $script:PrevisDIR -Destination $script:workingdir -Force -ErrorAction SilentlyContinue
+            }
+            else {
+                Write-Warning "The source directory '$script:PrevisDIR' does not exist."
             }
         }
 
@@ -923,7 +915,9 @@ function Invoke-Archiver {
             #Add-Content -Path $mainLogPath -Value (Get-Content $unpackLogPath)
             Remove-Item $unpackLogPath
         }
-        if ((Get-ChildItem -Path $meshesSubdir) -or (Get-ChildItem -Path $meshesSubdir -Recurse)) {
+        $hasMeshContent = (Test-Path $script:MeshesSubdir) -and
+            (Get-ChildItem -Path $script:MeshesSubdir -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1)
+        if ($hasMeshContent) {
             # Packing operation
             Write-CustomDebug -Message "Packing directory: $script:workingdir into archive: $script:ba2"
             $packOutput = & $script:bsarch "pack" "$script:workingdir" "$script:ba2" "-fo4" "-z" "-mt" "-share" 2>&1
@@ -955,20 +949,21 @@ function MoveScriptToCorrectDirectory {
     }
 
     $script:scriptPath = Join-Path $script:fo4 (Split-Path $PSCommandPath -Leaf)
-    if ($PSCommandPath -eq $scriptPath) {
+    if ($PSCommandPath -eq $script:scriptPath) {
         Write-Host "Script directory vindicated" -ForegroundColor Green
         return
     }
 
+    $jsonDestination = Join-Path $script:fo4 $script:jsonFileName
     $filesToMove = @(
         @{
             Source      = $PSCommandPath
-            Destination = $scriptPath
+            Destination = $script:scriptPath
             Name        = "Script"
         },
         @{
             Source      = $script:jsonFilePath
-            Destination = $jsonFileDestinationPath
+            Destination = $jsonDestination
             Name        = $script:jsonFileName
         }
     )
@@ -1012,8 +1007,8 @@ function PSGCompression {
     if ($script:precombinesran -eq $true) {
         Invoke-CK -Argument "PSGCompression"
         Wait-ForFile -FileName $script:CSG -Caller 'PSGCompression'
-        if (Test-Path "$EXT - Geometry.csg") {
-            Remove-Item "$EXT - Geometry.psg" -Force
+        if (Test-Path $script:CSG) {
+            Remove-Item $script:PSG -Force -ErrorAction SilentlyContinue
         }
     }
     else {
@@ -1088,7 +1083,7 @@ $functions = @(
     "PackMesh",
     "GenerateCDX",
     "Previs",
-    "PackMeshVis"
+    "PackMeshVis",
     "CreateZip"
 )
 
@@ -1123,8 +1118,9 @@ function Execute {
         $startFunction = 0
     }
     else {
+        $menuLines = for ($i = 0; $i -lt $functions.Count; $i++) { "$i. $($functions[$i])" }
         $promptString = "Enter the number of the function you want to start from (0-$($functions.Count - 1)):`n"
-        $promptString += ($functions | ForEach-Object { "$($_.Index). $_" }) -join "`n"
+        $promptString += ($menuLines -join "`n")
 
         do {
             $startFunctionInput = Read-Host -Prompt $promptString
@@ -1187,10 +1183,16 @@ try {
     }
 }
 catch {
+    $script:executionSucceeded = $false
     Write-Error "An error occurred: $_"
 }
 finally {
-    Write-Output "Previsbines automation completed without error."
-    Write-Host "Thank you for using Cannibal Toasts' Previsbine Generation Script. Stay Toasty!!" -ForegroundColor Green
-    Stop-Transcript
+    if ($script:executionSucceeded) {
+        Write-Output "Previsbines automation completed successfully."
+        Write-Host "Thank you for using Cannibal Toasts' Previsbine Generation Script. Stay Toasty!!" -ForegroundColor Green
+    }
+    else {
+        Write-Host "Previsbines automation ended with errors. Review the transcript log for details." -ForegroundColor Red
+    }
+    Stop-Transcript -ErrorAction SilentlyContinue
 }
